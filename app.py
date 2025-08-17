@@ -49,11 +49,7 @@ with st.sidebar:
     max_exec_time = st.slider("Max execution time (sec)", 5, 90, 30, 5)
 
     st.header("Decoding")
-    deterministic = st.checkbox(
-        "Deterministic (recommended)", value=True,
-        help="Turns OFF sampling so the agent formats tool calls reliably."
-    )
-    temperature = st.slider("Temperature (used only if sampling is ON)", 0.0, 1.2, 0.7, 0.1)
+
 
     st.info(
         "Tip: If you see PyTorch extension errors on rerun, keep this page's "
@@ -63,7 +59,7 @@ with st.sidebar:
 
 # ============ CACHED HELPERS ============
 @st.cache_resource(show_spinner=False)
-def load_llm(model_id: str, deterministic: bool, temperature: float):
+def load_llm(model_id: str):
     """
     Build tokenizer/model/pipeline ONCE per process or when any of the
     (model_id, max_new_tokens, deterministic/temperature) params change.
@@ -80,9 +76,8 @@ def load_llm(model_id: str, deterministic: bool, temperature: float):
         "text-generation",
         model=model,
         tokenizer=tok,
-        max_new_tokens=512,
-        do_sample=not deterministic,
-        **({} if deterministic else {"temperature": float(temperature)})
+        max_new_tokens=256,
+        do_sample=True,
     )
     return HuggingFacePipeline(pipeline=gen)
 
@@ -122,7 +117,7 @@ def extract_final_answer(result: Dict[str, Any]) -> str:
 
 # ============ LLM (cached) ============
 try:
-    hf_llm = load_llm(MODEL_ID, deterministic, temperature)
+    hf_llm = load_llm(MODEL_ID)
 except Exception as e:
     st.error(f"LLM load failed for `{MODEL_ID}`:\n\n{e}")
     st.stop()
@@ -165,13 +160,12 @@ if run:
                 df=df,
                 verbose=False,
                 allow_dangerous_code=True,
-                include_df_in_prompt=False,          # allowed because we removed prefix/suffix
+                include_df_in_prompt=False,
                 number_of_head_rows=0,
+                agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
                 max_iterations=int(max_iterations),
                 max_execution_time=int(max_exec_time),
-                early_stopping_method="generate",
-                agent_executor_kwargs={"handle_parsing_errors": True},
-                agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+                agent_executor_kwargs={"handle_parsing_errors": True},  # no early_stopping_method
                 return_intermediate_steps=False,
             )
 
