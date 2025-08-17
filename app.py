@@ -1,7 +1,11 @@
 # app.py
 
+# --- top of app.py ---
 import os
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"  # avoid inotify limit
+os.environ["WATCHDOG_FORCE_POLLING"] = "true"
 os.environ["TRANSFORMERS_NO_TORCHVISION"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import io
 import time
