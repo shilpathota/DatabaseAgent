@@ -5,3 +5,4 @@ langchain-experimental==0.3.4
 langchain-huggingface==0.3.1
 transformers==4.55.2
 torch==2.8.0
+accelerate
