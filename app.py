@@ -44,7 +44,7 @@ with st.sidebar:
         value=True,
         help="The Pandas DataFrame agent uses a Python REPL tool under the hood."
     )
-    max_new_tokens = st.slider("Max new tokens (answer length)", 16, 512, 64, 16)
+    # max_new_tokens = st.slider("Max new tokens (answer length)", 16, 512, 64, 16)
     max_iterations = st.slider("Max agent iterations", 1, 8, 3, 1)
     max_exec_time = st.slider("Max execution time (sec)", 5, 90, 30, 5)
 
@@ -80,7 +80,7 @@ def load_llm(model_id: str, max_new_tokens: int, deterministic: bool, temperatur
         "text-generation",
         model=model,
         tokenizer=tok,
-        max_new_tokens=int(max_new_tokens),
+        max_new_tokens=512,
         do_sample=not deterministic,
         **({} if deterministic else {"temperature": float(temperature)})
     )
@@ -95,10 +95,34 @@ def load_csv(file_bytes: bytes, sep: str, encoding: str, preview_rows: int = 300
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
     return df, df.head(min(preview_rows, len(df)))
 
+from typing import Any, Dict, Tuple, List
+
+def extract_final_answer(result: Dict[str, Any]) -> str:
+    # 1) Prefer explicit 'FINAL: ...' if your prompt/suffix produces it
+    text = result.get("output", "") if isinstance(result, dict) else str(result)
+    m = re.search(r"(?im)^\s*FINAL:\s*(.+)$", text)
+    if m:
+        return m.group(1).strip()
+
+    # 2) Otherwise take the last tool observation (not LLM tokens)
+    steps: List[Tuple[Any, Any]] = result.get("intermediate_steps", []) if isinstance(result, dict) else []
+    for _action, observation in reversed(steps):
+        obs = str(observation).strip()
+        if obs:
+            # "Trim" = pick the first non-empty line so you get a short, clean answer
+            return obs.splitlines()[0].strip()
+
+    # 3) Fallback: last non-empty line of the LLM text
+    for line in reversed(text.splitlines()):
+        if line.strip():
+            return line.strip()
+
+    return text.strip()
+
 
 # ============ LLM (cached) ============
 try:
-    hf_llm = load_llm(MODEL_ID, max_new_tokens, deterministic, temperature)
+    hf_llm = load_llm(MODEL_ID, 512, deterministic, temperature)
 except Exception as e:
     st.error(f"LLM load failed for `{MODEL_ID}`:\n\n{e}")
     st.stop()
@@ -136,26 +160,12 @@ if run:
         st.error("Please upload a CSV first.")
     else:
         try:
-            ANSWER_ONLY_PREFIX = """You are a pandas DataFrame analysis assistant.
-            You may run Python to compute the answer from the DataFrame `df`.
-            Return ONLY the final answer — no steps, no bullet points, no explanations.
-            When you have the answer, print exactly one line in this format:
-            
-            FINAL: <answer>
-            
-            If the result is a number, just print the number. If it’s a short list,
-            print a short comma-separated list. Do not add any extra text before or after.
-            """
-
-            ANSWER_ONLY_SUFFIX = """Question: {input}
-            (remember: output exactly one line 'FINAL: <answer>')"""
-
             agent = create_pandas_dataframe_agent(
                 llm=hf_llm,
                 df=df,
                 verbose=False,
                 allow_dangerous_code=True,
-                include_df_in_prompt=False,
+                include_df_in_prompt=False,          # allowed because we removed prefix/suffix
                 number_of_head_rows=0,
                 max_iterations=int(max_iterations),
                 max_execution_time=int(max_exec_time),
@@ -163,8 +173,6 @@ if run:
                 agent_executor_kwargs={"handle_parsing_errors": True},
                 agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
                 return_intermediate_steps=False,
-                prefix=ANSWER_ONLY_PREFIX,
-                suffix=ANSWER_ONLY_SUFFIX,
             )
 
             with st.spinner("Thinking…"):
@@ -175,16 +183,12 @@ if run:
                 )
                 elapsed = time.time() - t0
 
+            result = agent.invoke({"input": question}, config={"callbacks": []})
             text = result["output"] if isinstance(result, dict) else str(result)
-            m = re.search(r"(?i)^\s*FINAL:\s*(.+)$", text, flags=re.MULTILINE)
-            answer = m.group(1).strip() if m else text.strip().splitlines()[0]  # fallback
-
+            # show just the first non-empty line as the answer
+            first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
             st.markdown("### 3) Answer")
-            st.write(answer)
-            st.caption(
-                f"Model: `{MODEL_ID}` • Deterministic: {deterministic} • "
-                f"Agent iterations ≤ {max_iterations} • Time: {elapsed:.1f}s"
-            )
+            st.write(first)
         except Exception as e:
             st.error(f"Run failed:\n\n{e}")
             # Helpful hint for common causes without breaking flow
