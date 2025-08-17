@@ -52,7 +52,6 @@ hf_llm = HuggingFacePipeline(pipeline=gen)
 import pandas as pd
 df = pd.read_csv("./all-states-history.csv").fillna(value = 0)
 
-!pip install langchain_experimental
 
 from langchain.agents.agent_types import AgentType
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
@@ -337,13 +336,15 @@ tools_sql = [
     }
 ]
 
-!pip install groq
 
 from groq import Groq
-from google.colab import userdata
 import json
-
-client = Groq(api_key=userdata.get("GROQ_API_KEY"))
+import streamlit as st
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    st.error("Missing GROQ_API_KEY. Set it in Streamlit Secrets or as an environment variable.")
+    st.stop()
+client = Groq(api_key=GROQ_API_KEY)
 model = "llama3-70b-8192"  # or "mixtral-8x7b-32768", etc.
 
 response = client.chat.completions.create(
@@ -474,6 +475,3 @@ if run:
 
         except Exception as e:
             st.error(f"Run failed:\n\n{e}")
-            if import_error:
-                with st.expander("Import trace (database_agent.py)"):
-                    st.code(import_error, language="text")

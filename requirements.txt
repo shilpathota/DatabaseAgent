@@ -10,3 +10,4 @@ torchvision
 torchaudio
 transformers>=4.43
 accelerate
+groq
