@@ -35,7 +35,7 @@ with st.sidebar:
     st.caption("Small CPU model recommended for Streamlit Cloud / basic CPUs.")
     MODEL_ID = st.text_input(
         "HF model id",
-        value="Qwen/Qwen2.5-0.5B-Instruct",
+        value="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         help="Examples: Qwen/Qwen2.5-0.5B-Instruct, TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     )
 
