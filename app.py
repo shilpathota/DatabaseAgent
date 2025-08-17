@@ -11,6 +11,7 @@ import io
 import time
 import pandas as pd
 import streamlit as st
+import re
 
 # HF / Torch
 import torch
@@ -135,20 +136,35 @@ if run:
         st.error("Please upload a CSV first.")
     else:
         try:
-            # Build the Pandas agent on-the-fly for the uploaded DataFrame
+            ANSWER_ONLY_PREFIX = """You are a pandas DataFrame analysis assistant.
+            You may run Python to compute the answer from the DataFrame `df`.
+            Return ONLY the final answer — no steps, no bullet points, no explanations.
+            When you have the answer, print exactly one line in this format:
+            
+            FINAL: <answer>
+            
+            If the result is a number, just print the number. If it’s a short list,
+            print a short comma-separated list. Do not add any extra text before or after.
+            """
+
+            ANSWER_ONLY_SUFFIX = """Question: {input}
+            (remember: output exactly one line 'FINAL: <answer>')"""
+
             agent = create_pandas_dataframe_agent(
                 llm=hf_llm,
                 df=df,
-                verbose=False,                      # keep console clean
-                allow_dangerous_code=True,          # required by this agent
-                include_df_in_prompt=False,         # prevents long prompts on big CSVs
+                verbose=False,
+                allow_dangerous_code=True,
+                include_df_in_prompt=False,
                 number_of_head_rows=0,
                 max_iterations=int(max_iterations),
                 max_execution_time=int(max_exec_time),
                 early_stopping_method="generate",
                 agent_executor_kwargs={"handle_parsing_errors": True},
                 agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                return_intermediate_steps=True,
+                return_intermediate_steps=False,
+                prefix=ANSWER_ONLY_PREFIX,
+                suffix=ANSWER_ONLY_SUFFIX,
             )
 
             with st.spinner("Thinking…"):
@@ -159,14 +175,16 @@ if run:
                 )
                 elapsed = time.time() - t0
 
-            output = result["output"] if isinstance(result, dict) and "output" in result else result
+            text = result["output"] if isinstance(result, dict) else str(result)
+            m = re.search(r"(?i)^\s*FINAL:\s*(.+)$", text, flags=re.MULTILINE)
+            answer = m.group(1).strip() if m else text.strip().splitlines()[0]  # fallback
+
             st.markdown("### 3) Answer")
-            st.write(output)
+            st.write(answer)
             st.caption(
                 f"Model: `{MODEL_ID}` • Deterministic: {deterministic} • "
                 f"Agent iterations ≤ {max_iterations} • Time: {elapsed:.1f}s"
             )
-
         except Exception as e:
             st.error(f"Run failed:\n\n{e}")
             # Helpful hint for common causes without breaking flow
