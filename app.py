@@ -17,8 +17,9 @@ import re
 import torch
 torch.set_num_threads(1)  # or 2 on a 2-core instance
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-
+from transformers import pipeline
+from transformers.models.auto import AutoModelForCausalLM
+from transformers.models.auto.tokenization_auto import AutoTokenizer
 # LangChain
 from langchain_huggingface import HuggingFacePipeline
 from langchain.agents import AgentType
