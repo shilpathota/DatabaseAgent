@@ -1,9 +1,5 @@
 # app.py
-# ------------------------------------------------------------
-# Single-file Streamlit app: upload CSV and query via LangChain
-# ------------------------------------------------------------
 
-# 0) Keep vision deps out of the path (must be first)
 import os
 os.environ["TRANSFORMERS_NO_TORCHVISION"] = "1"
 
@@ -153,7 +149,10 @@ if run:
 
             with st.spinner("Thinking…"):
                 t0 = time.time()
-                result = agent.invoke({"input": question}, config={"callbacks": []})
+                result = agent.invoke(
+                    {"input": question},
+                    config={"run_name": "csv_query", "tags": ["ui"], "configurable": {"max_new_tokens": int(max_new_tokens)}}
+                )
                 elapsed = time.time() - t0
 
             output = result["output"] if isinstance(result, dict) and "output" in result else result
