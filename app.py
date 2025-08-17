@@ -1,64 +1,41 @@
-
 # app.py
+# ------------------------------------------------------------
+# Single-file Streamlit app: upload CSV and query via LangChain
+# ------------------------------------------------------------
 
-## Build AI Agent
-# put these two lines at the very top of the cell
+# 0) Keep vision deps out of the path (must be first)
 import os
 os.environ["TRANSFORMERS_NO_TORCHVISION"] = "1"
-
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
-from langchain_huggingface import ChatHuggingFace,HuggingFacePipeline
-from langchain.schema import HumanMessage, SystemMessage
-
-MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"   # model you chose
-
-tok = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    device_map="cpu",            # force CPU
-    torch_dtype=torch.float32,   # CPU runs best in float32
-    trust_remote_code=True,
-)
-
-gen = pipeline(
-    "text-generation",
-    model=model,
-    tokenizer=tok,
-    max_new_tokens=128,
-    do_sample=True,
-)
-
-# 1) Wrap HF pipeline as a LangChain LLM
-hf_llm = HuggingFacePipeline(pipeline=gen)
-import os
-os.environ["TRANSFORMERS_NO_TORCHVISION"] = "1"  # keep vision deps out of the import path
 
 import io
 import time
 import pandas as pd
 import streamlit as st
 
-# LangChain bits (agent is created in the UI from your existing LLM)
+# HF / Torch
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+
+# LangChain
+from langchain_huggingface import HuggingFacePipeline
 from langchain.agents import AgentType
 from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
 
 
-@st.cache_data(show_spinner=False)
-def load_csv(file_bytes: bytes, sep: str, encoding: str, preview_rows: int = 300):
-    df = pd.read_csv(io.BytesIO(file_bytes), sep=sep, encoding=encoding)
-    # light normalization for friendlier queries
-    if "date" in df.columns:
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    return df, df.head(min(preview_rows, len(df)))
-
+# ============ UI CONFIG ============
 st.set_page_config(page_title="Chat with your CSV", page_icon="📊", layout="wide")
-st.title("📊 Chat with your CSV (LangChain)")
+st.title("📊 Chat with your CSV (LangChain + HF on CPU)")
 
 with st.sidebar:
+    st.header("Model")
+    st.caption("Small CPU model recommended for Streamlit Cloud / basic CPUs.")
+    MODEL_ID = st.text_input(
+        "HF model id",
+        value="Qwen/Qwen2.5-0.5B-Instruct",
+        help="Examples: Qwen/Qwen2.5-0.5B-Instruct, TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    )
+
     st.header("Agent settings")
-    st.caption("Uses your existing `hf_llm` and builds a Pandas agent at runtime.")
     allow_dangerous = st.checkbox(
         "Allow Python execution (required by Pandas agent)",
         value=True,
@@ -67,9 +44,64 @@ with st.sidebar:
     max_new_tokens = st.slider("Max new tokens (answer length)", 32, 1024, 256, 32)
     max_iterations = st.slider("Max agent iterations", 1, 12, 6, 1)
     max_exec_time = st.slider("Max execution time (sec)", 5, 120, 60, 5)
-    st.divider()
-    st.markdown("**LLM source:** `hf_llm` from `database_agent.py`")
 
+    st.header("Decoding")
+    deterministic = st.checkbox(
+        "Deterministic (recommended)", value=True,
+        help="Turns OFF sampling so the agent formats tool calls reliably."
+    )
+    temperature = st.slider("Temperature (used only if sampling is ON)", 0.0, 1.2, 0.7, 0.1)
+
+    st.info(
+        "Tip: If you see PyTorch extension errors on rerun, keep this page's "
+        "model cached and avoid changing the model frequently."
+    )
+
+
+# ============ CACHED HELPERS ============
+@st.cache_resource(show_spinner=False)
+def load_llm(model_id: str, max_new_tokens: int, deterministic: bool, temperature: float):
+    """
+    Build tokenizer/model/pipeline ONCE per process or when any of the
+    (model_id, max_new_tokens, deterministic/temperature) params change.
+    """
+    tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        device_map="cpu",
+        torch_dtype=torch.float32,
+        low_cpu_mem_usage=True,
+        trust_remote_code=False,  # safer; most chat-tuned small models work fine
+    )
+    gen = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tok,
+        max_new_tokens=int(max_new_tokens),
+        do_sample=not deterministic,
+        **({} if deterministic else {"temperature": float(temperature)})
+    )
+    return HuggingFacePipeline(pipeline=gen)
+
+
+@st.cache_data(show_spinner=False)
+def load_csv(file_bytes: bytes, sep: str, encoding: str, preview_rows: int = 300):
+    df = pd.read_csv(io.BytesIO(file_bytes), sep=sep, encoding=encoding)
+    # light normalization to make date queries simpler
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    return df, df.head(min(preview_rows, len(df)))
+
+
+# ============ LLM (cached) ============
+try:
+    hf_llm = load_llm(MODEL_ID, max_new_tokens, deterministic, temperature)
+except Exception as e:
+    st.error(f"LLM load failed for `{MODEL_ID}`:\n\n{e}")
+    st.stop()
+
+
+# ============ CSV UPLOAD ============
 st.markdown("### 1) Upload a CSV")
 file = st.file_uploader("Drag & drop or browse", type=["csv"])
 sep = st.text_input("Separator (optional)", value=",")
@@ -83,8 +115,13 @@ if file:
     with st.expander("Preview (first rows)"):
         st.dataframe(preview, use_container_width=True)
 
+
+# ============ QUESTION & RUN ============
 st.markdown("### 2) Ask a question")
-default_q = "Filter to July 2020 and report the total hospitalizedIncrease for Texas and also the total across all states."
+default_q = (
+    "Filter to July 2020 and report the total hospitalizedIncrease "
+    "for Texas (state == 'TX') and also the total across all states."
+)
 question = st.text_area("Natural-language question", value=default_q, height=90)
 
 run = st.button("Run query", type="primary", disabled=(df is None or not question))
@@ -96,18 +133,16 @@ if run:
         st.error("Please upload a CSV first.")
     else:
         try:
-            llm = hf_llm
-
-            # ---- build the agent on-the-fly with your existing LLM ----
+            # Build the Pandas agent on-the-fly for the uploaded DataFrame
             agent = create_pandas_dataframe_agent(
-                llm=llm,
+                llm=hf_llm,
                 df=df,
-                verbose=False,                    # keep the console clean
-                allow_dangerous_code=True,        # required by this agent type
-                include_df_in_prompt=False,       # prevents long prompts on big CSVs
+                verbose=False,                      # keep console clean
+                allow_dangerous_code=True,          # required by this agent
+                include_df_in_prompt=False,         # prevents long prompts on big CSVs
                 number_of_head_rows=0,
-                max_iterations=max_iterations,
-                max_execution_time=max_exec_time,
+                max_iterations=int(max_iterations),
+                max_execution_time=int(max_exec_time),
                 early_stopping_method="generate",
                 agent_executor_kwargs={"handle_parsing_errors": True},
                 agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
@@ -116,14 +151,24 @@ if run:
 
             with st.spinner("Thinking…"):
                 t0 = time.time()
-                # Keep decoding deterministic by default (relies on your existing hf_llm config)
                 result = agent.invoke({"input": question}, config={"callbacks": []})
                 elapsed = time.time() - t0
 
             output = result["output"] if isinstance(result, dict) and "output" in result else result
             st.markdown("### 3) Answer")
             st.write(output)
-            st.caption(f"Took {elapsed:.1f}s • Agent iterations ≤ {max_iterations}")
+            st.caption(
+                f"Model: `{MODEL_ID}` • Deterministic: {deterministic} • "
+                f"Agent iterations ≤ {max_iterations} • Time: {elapsed:.1f}s"
+            )
 
         except Exception as e:
             st.error(f"Run failed:\n\n{e}")
+            # Helpful hint for common causes without breaking flow
+            st.info(
+                "If this persists, try: "
+                "1) keeping Deterministic ON, "
+                "2) reducing Max new tokens, "
+                "3) confirming the CSV has the expected columns, "
+                "4) using a tiny model like TinyLlama for faster CPU responses."
+            )
