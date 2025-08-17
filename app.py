@@ -14,6 +14,8 @@ import streamlit as st
 
 # HF / Torch
 import torch
+torch.set_num_threads(1)  # or 2 on a 2-core instance
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 # LangChain
@@ -41,9 +43,9 @@ with st.sidebar:
         value=True,
         help="The Pandas DataFrame agent uses a Python REPL tool under the hood."
     )
-    max_new_tokens = st.slider("Max new tokens (answer length)", 32, 1024, 256, 32)
-    max_iterations = st.slider("Max agent iterations", 1, 12, 6, 1)
-    max_exec_time = st.slider("Max execution time (sec)", 5, 120, 60, 5)
+    max_new_tokens = st.slider("Max new tokens (answer length)", 16, 512, 64, 16)
+    max_iterations = st.slider("Max agent iterations", 1, 8, 3, 1)
+    max_exec_time = st.slider("Max execution time (sec)", 5, 90, 30, 5)
 
     st.header("Decoding")
     deterministic = st.checkbox(
@@ -146,7 +148,7 @@ if run:
                 early_stopping_method="generate",
                 agent_executor_kwargs={"handle_parsing_errors": True},
                 agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                return_intermediate_steps=False,
+                return_intermediate_steps=True,
             )
 
             with st.spinner("Thinking…"):
