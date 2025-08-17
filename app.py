@@ -122,7 +122,7 @@ def extract_final_answer(result: Dict[str, Any]) -> str:
 
 # ============ LLM (cached) ============
 try:
-    hf_llm = load_llm(MODEL_ID, 512, deterministic, temperature)
+    hf_llm = load_llm(MODEL_ID, deterministic, temperature)
 except Exception as e:
     st.error(f"LLM load failed for `{MODEL_ID}`:\n\n{e}")
     st.stop()
