@@ -63,7 +63,7 @@ with st.sidebar:
 
 # ============ CACHED HELPERS ============
 @st.cache_resource(show_spinner=False)
-def load_llm(model_id: str, max_new_tokens: int, deterministic: bool, temperature: float):
+def load_llm(model_id: str, deterministic: bool, temperature: float):
     """
     Build tokenizer/model/pipeline ONCE per process or when any of the
     (model_id, max_new_tokens, deterministic/temperature) params change.
@@ -179,7 +179,7 @@ if run:
                 t0 = time.time()
                 result = agent.invoke(
                     {"input": question},
-                    config={"run_name": "csv_query", "tags": ["ui"], "configurable": {"max_new_tokens": int(max_new_tokens)}}
+                    config={"run_name": "csv_query", "tags": ["ui"], "configurable": {"max_new_tokens": 512}}
                 )
                 elapsed = time.time() - t0
 
