@@ -16,17 +16,6 @@ Original file is located at
 
 ## Build AI Agent
 """
-
-# Uninstall any GPU-specific builds first
-!pip uninstall -y torch torchvision torchaudio bitsandbytes
-
-# Install latest stable CPU-only PyTorch
-!pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-# Install Transformers + LangChain
-!pip install -U "transformers>=4.43" accelerate
-!pip install -U langchain langchain-huggingface
-
 # put these two lines at the very top of the cell
 import os
 os.environ["TRANSFORMERS_NO_TORCHVISION"] = "1"

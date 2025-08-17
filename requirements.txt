@@ -3,4 +3,10 @@ pandas>=2.0
 langchain>=0.2
 langchain-experimental>=0.3
 langchain-openai>=0.1.7
+langchain-huggingface
 cloudflared
+torch
+torchvision
+torchaudio
+transformers>=4.43
+accelerate
